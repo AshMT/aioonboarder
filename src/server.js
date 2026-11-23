@@ -97,6 +97,11 @@ function tooMany(ip) {
 // ---- public routes ----
 app.get('/healthz', (req, res) => res.json({ ok: true }))
 
+// Public landing for the bare domain (the reverse proxy maps "/" here) and token-less links.
+app.get(['/join', '/welcome', '/welcome/'], (req, res) => {
+  res.send(views.welcomePage({ o: null, s: db.getSettings(), guideHtml: '', state: 'landing' }))
+})
+
 app.get('/welcome/:token', (req, res) => {
   const s = db.getSettings()
   const o = db.getOnboardingByToken(req.params.token)

@@ -102,7 +102,23 @@ If AIOManager sits behind Caddy with `tls internal` (self-signed), either paste 
 
 ### Public welcome links
 
-Only `/welcome/*` needs to be reachable by the people you onboard. If you expose AIOOnboarder through a reverse proxy, you can restrict it to that path and keep the admin UI on your LAN. Set **Public URL** in Settings so links use the public address.
+Only `/welcome/*` (plus the CSS, JS and font files) needs to be reachable by the people you onboard. Expose just those through your reverse proxy, keep the admin UI on your LAN, and set **Public URL** in Settings so links use the public address. `/join` is a public landing page for the bare domain. A Caddy example:
+
+```caddy
+join.example.com {
+	@public path /welcome /welcome/* /join /style.css /app.js /favicon.svg /fonts/*
+	handle / {
+		rewrite * /join
+		reverse_proxy 10.0.0.20:8080
+	}
+	handle @public {
+		reverse_proxy 10.0.0.20:8080
+	}
+	handle {
+		respond 404
+	}
+}
+```
 
 ## Notes
 

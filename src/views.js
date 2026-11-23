@@ -326,6 +326,14 @@ export function settingsPage({ s, serverName, flash, defaultGuide, user, cert, a
 
 export function welcomePage({ o, s, guideHtml, state }) {
   const serverName = s.server_name || APP_NAME
+  if (state === 'landing') {
+    return layout({
+      title: 'Welcome',
+      nav: false,
+      serverName,
+      body: `<div class="welcome">${heroBrand(serverName, 'Welcome aboard.')}<div class="card"><h1>You need an invite link</h1><p class="muted">This is where people get set up with Stremio. If someone sent you a welcome link, open that link to see your login and setup guide.</p>${s.support_contact ? `<p class="muted" style="margin-bottom:0">Don't have one? ${esc(s.support_contact)}</p>` : ''}</div></div>`,
+    })
+  }
   if (state !== 'ok') {
     const msg = { expired: 'This welcome link has expired.', revoked: 'This welcome link is no longer active.', missing: 'This welcome link is not valid.' }[state]
     return layout({
