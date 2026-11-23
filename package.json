@@ -1,0 +1,24 @@
+{
+  "name": "aioonboarder",
+  "version": "0.1.0",
+  "description": "Wizarr-style onboarding for Stremio + AIOManager: create a Stremio account, add it to AIOManager, and hand the user a welcome link.",
+  "type": "module",
+  "main": "src/server.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "marked": "^15.0.6",
+    "nodemailer": "^6.10.0"
+  },
+  "devDependencies": {
+    "fflate": "^0.8.2"
+  }
+}
