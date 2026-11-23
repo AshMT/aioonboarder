@@ -1,6 +1,6 @@
 {
   "name": "aioonboarder",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Wizarr-style onboarding for Stremio + AIOManager: create a Stremio account, add it to AIOManager, and hand the user a welcome link.",
   "type": "module",
   "main": "src/server.js",

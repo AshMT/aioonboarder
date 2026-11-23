@@ -1,7 +1,7 @@
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
 export const APP_NAME = 'AIOOnboarder'
-export const VERSION = '0.1.0'
+export const VERSION = '0.2.0'
 
 const fmt = (ts) => (ts ? new Date(ts).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 
