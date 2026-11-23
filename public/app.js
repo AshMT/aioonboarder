@@ -132,3 +132,49 @@ document.querySelectorAll('[data-test]').forEach((btn) => {
     }
   })
 })
+
+// ---- settings page ----
+const settingsForm = $('#settings-form')
+if (settingsForm) {
+  const bar = $('.savebar', settingsForm)
+  const note = $('#dirty-note')
+  const snapshot = () => new URLSearchParams(new FormData(settingsForm)).toString().replace(/(^|&)test_to=[^&]*/, '')
+  const initial = snapshot()
+  let submitting = false
+  const update = () => {
+    const dirty = snapshot() !== initial
+    bar.classList.toggle('dirty', dirty)
+    note.textContent = dirty ? 'You have unsaved changes' : 'All changes saved'
+  }
+  settingsForm.addEventListener('input', update)
+  settingsForm.addEventListener('change', update)
+  settingsForm.addEventListener('submit', () => (submitting = true))
+  window.addEventListener('beforeunload', (e) => {
+    if (!submitting && snapshot() !== initial) e.preventDefault()
+  })
+
+  const guide = $('#guide-md')
+  $('#guide-load-default')?.addEventListener('click', () => {
+    if (guide.value.trim() && !confirm('Replace the current guide text with the built-in guide?')) return
+    guide.value = $('#guide-default').content.textContent.trim() + '\n'
+    guide.rows = 18
+    guide.focus()
+    update()
+  })
+  $('#guide-clear')?.addEventListener('click', () => {
+    if (guide.value.trim() && !confirm('Clear your custom guide and use the built-in one?')) return
+    guide.value = ''
+    guide.rows = 4
+    update()
+  })
+
+  // Highlight the section in view in the side nav.
+  const links = [...document.querySelectorAll('.set-nav a')]
+  const io = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue
+      links.forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + en.target.id))
+    }
+  }, { rootMargin: '-30% 0px -60% 0px' })
+  document.querySelectorAll('.set-section').forEach((el) => io.observe(el))
+}

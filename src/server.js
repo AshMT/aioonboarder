@@ -166,6 +166,7 @@ app.use((req, res, next) => {
 })
 
 const flashFrom = (req) => {
+  if (req.query.err) return { type: 'error', text: String(req.query.err).slice(0, 200) }
   const m = { saved: ['ok', 'Settings saved.'], retried: ['ok', 'Retried.'], link: ['ok', 'New welcome link created.'], revoked: ['ok', 'Link revoked.'], emailed: ['ok', 'Email step re-run.'], deleted: ['ok', 'Record deleted.'] }[req.query.ok]
   return m ? { type: m[0], text: m[1] } : null
 }
@@ -236,10 +237,57 @@ app.post('/onboardings/:id/delete', (req, res) => {
   res.redirect('/?ok=deleted')
 })
 
+function certInfo(pem) {
+  if (!pem) return null
+  try {
+    const c = new crypto.X509Certificate(pem)
+    const cn = /CN=([^\n,]+)/.exec(c.subject)?.[1] || c.subject
+    return { name: cn, expires: new Date(c.validTo).toLocaleDateString('en-AU', { dateStyle: 'medium' }) }
+  } catch {
+    return { name: 'Unreadable certificate', expires: 'unknown' }
+  }
+}
+
 app.get('/settings', (req, res) => {
   const s = db.getSettings()
-  res.send(views.settingsPage({ s, serverName: s.server_name, flash: flashFrom(req), defaultGuide: DEFAULT_GUIDE, user: readSession(req)?.u }))
+  res.send(views.settingsPage({
+    s,
+    serverName: s.server_name,
+    flash: flashFrom(req),
+    defaultGuide: DEFAULT_GUIDE,
+    user: readSession(req)?.u,
+    cert: certInfo(s.aio_ca),
+    aioReady: aioConfigured(s),
+    smtpReady: smtpConfigured(s),
+  }))
 })
+
+// Shows the welcome page with sample details so the guide can be checked before sending links.
+app.get('/settings/preview', (req, res) => {
+  const s = db.getSettings()
+  const o = { name: 'Sam', email: 'sam@example.com', temp_password: 'Kx7m-Pq4r-Tz9w' }
+  const guideHtml = renderGuide(s.guide_md, { name: o.name, email: o.email, server_name: s.server_name, support_contact: s.support_contact })
+  res.set('Cache-Control', 'no-store')
+  res.send(views.welcomePage({ o, s, guideHtml, state: 'ok' }))
+})
+
+// Certificate fields: a new PEM replaces the stored one, the Remove box clears it, and an
+// untouched form leaves it alone (the stored PEM is never echoed back into the page).
+function certFromBody(body, patch) {
+  const pem = String(body.aio_ca_new || '').trim()
+  if (pem) {
+    try {
+      new crypto.X509Certificate(pem)
+    } catch {
+      throw new Error("That CA certificate isn't a valid PEM certificate")
+    }
+    patch.aio_ca = pem
+    patch.aio_insecure_tls = '0'
+  } else if (body.aio_ca_clear === '1') {
+    patch.aio_ca = ''
+  }
+  return patch
+}
 
 function settingsFromBody(body) {
   const patch = {}
@@ -248,20 +296,25 @@ function settingsFromBody(body) {
     let v = body[k]
     if (Array.isArray(v)) v = v[v.length - 1] // hidden "0" + checkbox "1"
     if ((k === 'aio_password' || k === 'smtp_pass') && !v) continue // blank keeps the saved secret
+    if (k === 'aio_ca') continue // handled by certFromBody
     patch[k] = String(v).trim()
   }
-  return patch
+  return certFromBody(body, patch)
 }
 
 app.post('/settings', (req, res) => {
-  db.saveSettings(settingsFromBody(req.body))
+  try {
+    db.saveSettings(settingsFromBody(req.body))
+  } catch (err) {
+    return res.redirect('/settings?err=' + encodeURIComponent(err.message))
+  }
   res.redirect('/settings?ok=saved')
 })
 
 // Test endpoints take the unsaved form values so you can test before saving.
 app.post('/api/test/aiomanager', async (req, res) => {
-  const s = { ...db.getSettings(), ...settingsFromBody(req.body) }
   try {
+    const s = { ...db.getSettings(), ...settingsFromBody(req.body) }
     const c = aioClient(s)
     const sum = await c.summary()
     res.json({ ok: true, message: `Connected${sum.name ? ` as ${sum.name}` : ''}: ${sum.accounts.length} account(s) in AIOManager${sum.hasVault ? '' : ' (vault not initialised; log in to AIOManager once in a browser)'}` })
@@ -271,8 +324,8 @@ app.post('/api/test/aiomanager', async (req, res) => {
 })
 
 app.post('/api/test/smtp', async (req, res) => {
-  const s = { ...db.getSettings(), ...settingsFromBody(req.body) }
   try {
+    const s = { ...db.getSettings(), ...settingsFromBody(req.body) }
     if (!smtpConfigured(s)) throw new Error('Fill in at least the host and From address')
     await verifySmtp(s)
     if (req.body.test_to) await sendTest(s, req.body.test_to)

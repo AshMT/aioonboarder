@@ -1,6 +1,16 @@
-# AIOOnboarder
+<p align="center">
+  <img src="public/favicon.svg" width="72" alt="">
+</p>
 
-Onboarding for people you share a Stremio setup with, in the spirit of [Wizarr](https://github.com/wizarrrr/wizarr).
+<h1 align="center">AIOOnboarder</h1>
+
+<p align="center"><code>One link to onboard them all.</code></p>
+
+<p align="center">Onboarding for people you share a Stremio setup with, in the spirit of <a href="https://github.com/wizarrrr/wizarr">Wizarr</a>.</p>
+
+<p align="center">
+  <img src="docs/screenshots/onboarding.gif" width="820" alt="Onboarding someone: enter an email, and AIOOnboarder creates the Stremio account, adds it to AIOManager and returns a welcome link">
+</p>
 
 Enter someone's email, and AIOOnboarder:
 
@@ -8,13 +18,27 @@ Enter someone's email, and AIOOnboarder:
 2. **Adds it to [AIOManager](https://github.com/sonicx161/aiomanager)** with the Stremio auth key, so the account shows up there ready to have addons pushed to it.
 3. **Hands them a welcome link** with their login and an onboarding guide, and/or **emails it to them**.
 
+## Screenshots
+
+| Onboard | Record |
+|---|---|
+| <img src="docs/screenshots/onboard.png" alt="Onboard page with the onboarded list"> | <img src="docs/screenshots/record.png" alt="An onboarding record with credentials, steps and welcome link"> |
+
+| Welcome page (what they see) | Settings |
+|---|---|
+| <img src="docs/screenshots/welcome.png" alt="Welcome page with login details and setup guide"> | <img src="docs/screenshots/settings.png" alt="Settings with AIOManager connection, email and guide"> |
+
+<p align="center"><img src="docs/screenshots/welcome-mobile.png" width="300" alt="Welcome page on a phone"></p>
+
+<sub>Screenshots use demo data against local stand-ins for Stremio and AIOManager.</sub>
+
 ## Features
 
 - One-form onboarding with per-step status (Stremio / AIOManager / email) and **retry from the failed step** (it never creates a second Stremio account)
 - Welcome page per user: email + temp password with tap-to-copy, plus your guide (Markdown, editable in Settings, with `{{name}}`, `{{email}}`, `{{server_name}}`, `{{support_contact}}` placeholders)
 - Welcome links expire (default 7 days), can be revoked or re-issued, and show when they were first opened
 - Optional SMTP email, with or without the password in the body (default: link only)
-- AIOManager connection test before you save
+- AIOManager connection test before you save, and a preview of the welcome page from Settings
 - Secrets at rest (AIOManager master password, SMTP password, temp passwords, Stremio auth keys) are AES-256-GCM encrypted
 - Single admin account, scrypt-hashed, rate-limited login, SameSite=Strict session, strict CSP
 - Dark UI that matches AIOManager's look, works on phones

@@ -24,6 +24,7 @@ const ICONS = {
   book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
   sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
   external: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
   arrowLeft: '<path d="m12 19-7-7 7-7M19 12H5"/>',
   refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
 }
@@ -54,7 +55,7 @@ ${nav ? `<header class="topbar">
     <form method="post" action="/logout"><button class="icon-btn" title="Log out" aria-label="Log out">${icon('logout')}</button></form>
   </div>
 </header>` : ''}
-${flash ? `<div class="toast" role="status">${icon('check')}<span>${esc(flash.text)}</span></div>` : ''}
+${flash ? `<div class="toast ${flash.type === 'error' ? 'err' : ''}" role="status">${icon(flash.type === 'error' ? 'alert' : 'check')}<span>${esc(flash.text)}</span></div>` : ''}
 <main class="${nav ? 'wrap' : 'wrap narrow'}">
 ${body}
 </main>
@@ -221,60 +222,105 @@ export function detailPage({ o, link, serverName, flash, aioUrl, user }) {
   })
 }
 
-const field = (label, name, s, { type = 'text', hint = '', placeholder = '', mono = false } = {}) =>
-  `<label>${label}${hint ? ` <span class="muted">${hint}</span>` : ''}<input name="${name}" type="${type}"${mono ? ' class="mono"' : ''} value="${type === 'password' ? '' : esc(s[name])}" placeholder="${esc(type === 'password' && s[name] ? '•••••••• saved, leave blank to keep' : placeholder)}"></label>`
+const field = (label, name, s, { type = 'text', hint = '', placeholder = '', mono = false, help = '' } = {}) =>
+  `<label>${label}${hint ? ` <span class="muted">${hint}</span>` : ''}<input name="${name}" type="${type}"${mono ? ' class="mono"' : ''} value="${type === 'password' ? '' : esc(s[name])}" placeholder="${esc(type === 'password' && s[name] ? '•••••••• saved, leave blank to keep' : placeholder)}"${type === 'password' ? ' autocomplete="new-password"' : ''}>${help ? `<span class="help">${help}</span>` : ''}</label>`
 const toggle = (label, name, s, hint = '') =>
-  `<label class="check" style="margin-top:16px"><input type="hidden" name="${name}" value="0"><input type="checkbox" name="${name}" value="1" ${s[name] === '1' ? 'checked' : ''}><span>${label}${hint ? `<span class="hint">${hint}</span>` : ''}</span></label>`
-const sectionHead = (ic, title, sub) =>
-  `<div class="title-row card-head"><span class="badge-icon">${icon(ic)}</span><div><h1 style="font-size:17px">${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ''}</div></div>`
+  `<label class="check"><input type="hidden" name="${name}" value="0"><input type="checkbox" name="${name}" value="1" ${s[name] === '1' ? 'checked' : ''}><span>${label}${hint ? `<span class="hint">${hint}</span>` : ''}</span></label>`
+const statusBadge = (on, onText, offText) => `<span class="pill ${on ? 'ok' : 'off'}">${on ? onText : offText}</span>`
+const section = (id, ic, title, sub, badge, body) => `<section class="card set-section" id="${id}">
+  <div class="set-head">
+    <span class="badge-icon">${icon(ic)}</span>
+    <div class="set-title"><div class="set-title-row"><h2>${title}</h2>${badge || ''}</div><p>${sub}</p></div>
+  </div>
+  <div class="set-body">${body}</div>
+</section>`
 
-export function settingsPage({ s, serverName, flash, defaultGuide, user }) {
+export function settingsPage({ s, serverName, flash, defaultGuide, user, cert, aioReady, smtpReady }) {
+  const linkExample = `${(s.public_url || 'http://this-server:8080').replace(/\/$/, '')}/welcome/…`
+  const nav = [['general', 'sliders', 'General'], ['aiomanager', 'plug', 'AIOManager'], ['email', 'mail', 'Email'], ['guide', 'book', 'Welcome guide'], ['advanced', 'settings', 'Advanced']]
   return layout({
     title: 'Settings',
     active: 'settings',
     serverName,
     flash,
     user,
-    body: `<form method="post" action="/settings" class="settings">
-  <section class="card">
-    ${sectionHead('sliders', 'General', 'How you appear on welcome pages and emails.')}
-    ${field('Server name', 'server_name', s)}
-    ${field('Public URL', 'public_url', s, { hint: 'base for welcome links', placeholder: 'https://join.example.com', mono: true })}
-    ${field('Link lifetime (days)', 'link_ttl_days', s, { type: 'number' })}
-    ${field('Support contact', 'support_contact', s, { hint: 'shown in the guide and email', placeholder: 'Message me on WhatsApp' })}
-    ${field('Stremio API', 'stremio_api', s, { hint: 'leave as https://api.strem.io', mono: true })}
-  </section>
+    body: `<div class="set-layout">
+  <aside class="set-nav">
+    <div class="set-nav-title">Settings</div>
+    ${nav.map(([id, ic, label]) => `<a href="#${id}">${icon(ic)}${label}</a>`).join('')}
+  </aside>
+  <form method="post" action="/settings" class="set-main" id="settings-form">
+    <div class="page-head">
+      <h1>Settings</h1>
+      <p class="muted">Connections and the page people see when you onboard them.</p>
+    </div>
 
-  <section class="card" id="aiomanager">
-    ${sectionHead('plug', 'AIOManager', 'The account UUID and master password you log in to AIOManager with.')}
-    ${toggle('Add new accounts to AIOManager', 'aio_enabled', s)}
-    ${field('AIOManager URL', 'aio_url', s, { placeholder: 'https://aiomanager.lan', mono: true })}
-    ${field('Account UUID', 'aio_uuid', s, { placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', mono: true })}
-    ${field('Master password', 'aio_password', s, { type: 'password' })}
-    ${toggle('Allow self-signed TLS certificate', 'aio_insecure_tls', s, 'For LAN instances behind Caddy <code>tls internal</code>')}
-    <label>Custom CA certificate <span class="muted">PEM, safer than allowing self-signed</span><textarea name="aio_ca" rows="3" placeholder="-----BEGIN CERTIFICATE-----">${esc(s.aio_ca)}</textarea></label>
-    <div class="actions"><button class="btn" type="button" data-test="/api/test/aiomanager">${icon('plug')}Test connection</button><span class="test-out"></span></div>
-  </section>
+    ${section('general', 'sliders', 'General', 'How you appear on welcome pages and in emails.', '', `
+      <div class="row2">
+        ${field('Server name', 'server_name', s)}
+        ${field('Support contact', 'support_contact', s, { placeholder: 'Message me on WhatsApp' })}
+      </div>
+      ${field('Public URL', 'public_url', s, { placeholder: 'https://join.example.com', mono: true, help: `Welcome links look like <code>${esc(linkExample)}</code>` })}
+    `)}
 
-  <section class="card" id="email">
-    ${sectionHead('mail', 'Email', 'SMTP for sending welcome emails. Optional.')}
-    ${field('SMTP host', 'smtp_host', s, { placeholder: 'smtp.gmail.com', mono: true })}
-    ${field('Port', 'smtp_port', s, { type: 'number' })}
-    ${toggle('Use implicit TLS', 'smtp_secure', s, 'Usually port 465')}
-    ${field('Username', 'smtp_user', s)}
-    ${field('Password', 'smtp_pass', s, { type: 'password' })}
-    ${field('From', 'smtp_from', s, { placeholder: 'AIOOnboarder <you@example.com>' })}
-    ${toggle('Include the temporary password in the email', 'email_include_credentials', s, 'Otherwise the email only carries the welcome link')}
-    <div class="actions"><input name="test_to" type="email" placeholder="send a test to…" class="inline"><button class="btn" type="button" data-test="/api/test/smtp">${icon('mail')}Send test</button><span class="test-out"></span></div>
-  </section>
+    ${section('aiomanager', 'plug', 'AIOManager', 'New Stremio accounts are added to this AIOManager account.', statusBadge(aioReady, 'Configured', 'Not set up'), `
+      ${toggle('Add new accounts to AIOManager', 'aio_enabled', s)}
+      <div class="row2">
+        ${field('URL', 'aio_url', s, { placeholder: 'https://aiomanager.lan', mono: true })}
+        ${field('Account UUID', 'aio_uuid', s, { placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', mono: true })}
+      </div>
+      ${field('Master password', 'aio_password', s, { type: 'password', help: 'The password you log in to AIOManager with. Stored encrypted.' })}
+      <div class="subhead">HTTPS certificate</div>
+      ${cert
+        ? `<div class="cert">
+            <span class="cert-ic">${icon('check')}</span>
+            <div><strong>${esc(cert.name)}</strong><span class="muted small">Trusted custom CA · expires ${esc(cert.expires)}</span></div>
+            <label class="check inline-check"><input type="checkbox" name="aio_ca_clear" value="1"><span>Remove</span></label>
+          </div>
+          <details class="more"><summary>Replace certificate</summary><textarea name="aio_ca_new" rows="5" placeholder="-----BEGIN CERTIFICATE-----"></textarea></details>`
+        : `${toggle('Allow self-signed certificates', 'aio_insecure_tls', s, 'Quick fix for LAN instances behind Caddy <code>tls internal</code>. Adding the CA below is safer.')}
+          <details class="more"${s.aio_insecure_tls === '1' ? '' : ' open'}><summary>Add a custom CA certificate</summary><textarea name="aio_ca_new" rows="5" placeholder="-----BEGIN CERTIFICATE-----"></textarea></details>`}
+      <div class="actions"><button class="btn" type="button" data-test="/api/test/aiomanager">${icon('plug')}Test connection</button><span class="test-out"></span></div>
+    `)}
 
-  <section class="card wide">
-    ${sectionHead('book', 'Onboarding guide', 'Markdown shown on the welcome page under the login details. Placeholders: <code>{{name}}</code> <code>{{email}}</code> <code>{{server_name}}</code> <code>{{support_contact}}</code>. Leave empty for the built-in guide.')}
-    <textarea name="guide_md" rows="18" placeholder="${esc(defaultGuide)}">${esc(s.guide_md)}</textarea>
-  </section>
+    ${section('email', 'mail', 'Email', 'Optional. Lets you email welcome links instead of sending them yourself.', statusBadge(smtpReady, 'Configured', 'Off'), `
+      <div class="row-host">
+        ${field('SMTP host', 'smtp_host', s, { placeholder: 'mail.smtp2go.com', mono: true })}
+        ${field('Port', 'smtp_port', s, { type: 'number' })}
+      </div>
+      ${toggle('Use implicit TLS', 'smtp_secure', s, 'Usually only for port 465')}
+      <div class="row2">
+        ${field('Username', 'smtp_user', s)}
+        ${field('Password', 'smtp_pass', s, { type: 'password' })}
+      </div>
+      ${field('From address', 'smtp_from', s, { placeholder: 'AIOOnboarder <join@example.com>' })}
+      ${toggle('Include the temporary password in the email', 'email_include_credentials', s, 'Off: the email only carries the welcome link, which is safer.')}
+      <div class="actions"><input name="test_to" type="email" placeholder="Send a test to…" class="inline"><button class="btn" type="button" data-test="/api/test/smtp">${icon('mail')}Send test</button><span class="test-out"></span></div>
+    `)}
 
-  <div class="savebar"><button class="primary">Save settings</button></div>
-</form>`,
+    ${section('guide', 'book', 'Welcome guide', 'Markdown shown under the login details on every welcome page.', `<a class="btn sm" href="/settings/preview" target="_blank" rel="noopener">${icon('external')}Preview</a>`, `
+      <p class="help" style="margin-top:0">${s.guide_md ? 'Using your custom guide.' : 'Using the built-in guide.'} Placeholders: <code>{{name}}</code> <code>{{email}}</code> <code>{{server_name}}</code> <code>{{support_contact}}</code></p>
+      <textarea name="guide_md" rows="${s.guide_md ? 16 : 4}" id="guide-md" placeholder="Empty: the built-in guide is used.">${esc(s.guide_md)}</textarea>
+      <div class="actions">
+        <button class="btn" type="button" id="guide-load-default">Edit the built-in guide</button>
+        <button class="btn" type="button" id="guide-clear">Revert to built-in</button>
+      </div>
+      <template id="guide-default">${esc(defaultGuide)}</template>
+    `)}
+
+    ${section('advanced', 'settings', 'Advanced', 'Rarely needs changing.', '', `
+      <div class="row2">
+        ${field('Welcome link lifetime', 'link_ttl_days', s, { type: 'number', hint: 'days' })}
+        ${field('Stremio API', 'stremio_api', s, { mono: true, hint: 'default https://api.strem.io' })}
+      </div>
+    `)}
+
+    <div class="savebar">
+      <span class="dirty-note muted small" id="dirty-note">All changes saved</span>
+      <button class="primary">Save settings</button>
+    </div>
+  </form>
+</div>`,
   })
 }
 
