@@ -30,3 +30,33 @@ test('no synced add-ons means an empty set', () => {
   assert.deepEqual(standardAddonsFromState({ addons: { savedAddons: [saved('x', 'https://x/manifest.json', { syncWithInstalled: false })] } }), [])
   assert.deepEqual(standardAddonsFromState({}), [])
 })
+
+test('remove defaults keeps only what Stremio flags as protected', async () => {
+  const http = await import('node:http')
+  const { installStandardAddons } = await import('../src/onboard.js')
+  let written
+  const server = http.createServer(async (req, res) => {
+    let b = ''
+    for await (const c of req) b += c
+    const body = JSON.parse(b || '{}')
+    const send = (o) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(o))
+    if (req.url === '/api/addonCollectionGet') {
+      return send({ result: { addons: [
+        { transportUrl: 'https://a/manifest.json', manifest: { id: 'a', name: 'Needed' }, flags: { official: true, protected: true } },
+        { transportUrl: 'https://b/manifest.json', manifest: { id: 'b', name: 'Optional' }, flags: { official: true, protected: false } },
+      ] } })
+    }
+    if (req.url === '/api/addonCollectionSet') { written = body.addons; return send({ result: { success: true } }) }
+    send({ error: { message: 'unknown' } })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  try {
+    const s = { stremio_api: `http://127.0.0.1:${server.address().port}`, remove_defaults: '1', standard_addons: '1', aio_enabled: '0' }
+    const r = await installStandardAddons(s, 'key')
+    assert.deepEqual(written.map((a) => a.manifest.id), ['a'])
+    assert.deepEqual(r.removed, ['Optional'])
+    assert.equal(await installStandardAddons({ ...s, remove_defaults: '0' }, 'key'), null)
+  } finally {
+    server.close()
+  }
+})

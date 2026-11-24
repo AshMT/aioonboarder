@@ -334,6 +334,24 @@ app.post('/settings', (req, res) => {
   res.redirect('/settings?ok=saved')
 })
 
+app.get('/api/addons/synced', async (req, res) => {
+  const s = db.getSettings()
+  if (!aioConfigured(s)) return res.json({ ok: false, message: 'Set up AIOManager first.' })
+  try {
+    const list = await aioClient(s).standardAddons()
+    res.json({
+      ok: true,
+      addons: list.map((ad) => {
+        let host = ''
+        try { host = new URL(ad.transportUrl).host } catch {}
+        return { name: String(ad.manifest?.name || '').trim(), version: ad.manifest?.version || '', host }
+      }),
+    })
+  } catch (err) {
+    res.json({ ok: false, message: err.message })
+  }
+})
+
 // Test endpoints take the unsaved form values so you can test before saving.
 app.post('/api/test/aiomanager', async (req, res) => {
   try {

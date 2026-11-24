@@ -48,6 +48,7 @@ export const DEFAULT_SETTINGS = {
   aio_ca: '',
   aio_enabled: '1',
   standard_addons: '1',
+  remove_defaults: '1',
   link_ttl_days: '7',
   smtp_host: '',
   smtp_port: '587',

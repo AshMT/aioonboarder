@@ -133,6 +133,25 @@ document.querySelectorAll('[data-test]').forEach((btn) => {
   })
 })
 
+// Synced add-ons, read live from AIOManager.
+const addonList = $('[data-addons]')
+async function loadAddons() {
+  addonList.innerHTML = '<p class="muted small">Loading from AIOManager…</p>'
+  try {
+    const data = await (await fetch(addonList.dataset.addons)).json()
+    if (!data.ok) throw new Error(data.message || data.error)
+    addonList.innerHTML = data.addons.length
+      ? `<ul>${data.addons.map((a) => `<li><span class="ph">${esc((a.name || '?').charAt(0).toUpperCase())}</span><span><strong>${esc(a.name)}</strong><span class="muted small">${esc(a.host)}${a.version ? ` · v${esc(a.version)}` : ''}</span></span></li>`).join('')}</ul>`
+      : '<p class="muted small">No saved add-ons have <b>Sync with installed</b> on in AIOManager.</p>'
+  } catch (err) {
+    addonList.innerHTML = `<p class="test-out bad">${esc(err.message)}</p>`
+  }
+}
+if (addonList) {
+  loadAddons()
+  $('[data-addons-refresh]')?.addEventListener('click', loadAddons)
+}
+
 // ---- settings page ----
 const settingsForm = $('#settings-form')
 if (settingsForm) {

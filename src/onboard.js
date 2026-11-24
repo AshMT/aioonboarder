@@ -42,23 +42,37 @@ export function createOnboarding({ email, name, createLink, notifyEmail }) {
   })
 }
 
-const CINEMETA_ID = 'com.linvo.cinemeta'
-
-// Replaces a Stremio account's add-ons with Cinemeta plus your standard set: every saved add-on
-// in the AIOManager library that has "Sync with installed" on. Returns null when there is no set.
+// Builds a Stremio account's add-on list from two settings:
+//  - remove_defaults: drop the add-ons Stremio installed, except the ones Stremio itself flags
+//    as protected (it won't let those be removed).
+//  - standard_addons: add the saved add-ons that have "Sync with installed" on in AIOManager.
+// Nothing here names a particular add-on; both lists come from Stremio and AIOManager.
+// Returns null when neither setting would change anything.
 export async function installStandardAddons(s, authKey) {
-  const standard = await aioClient(s).standardAddons()
-  if (!standard.length) return null
+  const removeDefaults = s.remove_defaults === '1'
+  const standard = s.standard_addons === '1' && aioConfigured(s) ? await aioClient(s).standardAddons() : []
+  if (!removeDefaults && !standard.length) return null
   const current = await stremio.getAddonCollection(s.stremio_api, authKey)
-  const keep = current.filter((ad) => ad?.manifest?.id === CINEMETA_ID)
+  const keep = removeDefaults ? current.filter((ad) => ad?.flags?.protected === true) : current
+  const removed = current.filter((ad) => !keep.includes(ad))
   const urls = new Set(keep.map((ad) => ad.transportUrl))
-  const addons = [...keep, ...standard.filter((ad) => !urls.has(ad.transportUrl))]
+  const added = standard.filter((ad) => !urls.has(ad.transportUrl))
+  const addons = [...keep, ...added]
   await stremio.setAddonCollection(s.stremio_api, authKey, addons)
-  return { addons, names: standard.map((ad) => String(ad.manifest?.name || '').trim()).filter(Boolean) }
+  return { addons, added: names(added), removed: names(removed) }
 }
 
-function standardAddonsWanted(s) {
-  return s.standard_addons === '1' && aioConfigured(s)
+const names = (list) => list.map((ad) => String(ad.manifest?.name || '').trim()).filter(Boolean)
+
+function addonsDetail(r) {
+  const parts = []
+  if (r.added.length) parts.push(`Installed ${r.added.join(', ')}`)
+  if (r.removed.length) parts.push(`Removed ${r.removed.join(', ')}`)
+  return parts.join('. ') || 'Add-ons already matched'
+}
+
+function addonStepWanted(s) {
+  return s.remove_defaults === '1' || (s.standard_addons === '1' && aioConfigured(s))
 }
 
 const ok = (detail) => ({ ok: true, at: Date.now(), detail })
@@ -92,12 +106,10 @@ export async function runOnboarding(id, { reqOrigin } = {}) {
   }
 
   // 2. Standard add-ons (before AIOManager, so the account goes in with them)
-  if (!steps.addons?.ok && !steps.aiomanager?.ok && standardAddonsWanted(s)) {
+  if (!steps.addons?.ok && !steps.aiomanager?.ok && addonStepWanted(s)) {
     try {
       const r = await installStandardAddons(s, authKey)
-      steps.addons = r
-        ? ok(`Installed ${r.names.length} add-on(s): ${r.names.join(', ')}`)
-        : skip('No add-ons in the AIOManager library have "Sync with installed" on')
+      steps.addons = r ? ok(addonsDetail(r)) : skip('No add-ons in the AIOManager library have "Sync with installed" on')
     } catch (err) {
       steps.addons = fail(err)
       save({ status: 'failed' })
@@ -231,16 +243,15 @@ export async function applyStandardAddons(id) {
   const o = db.getOnboarding(id)
   const steps = { ...o.steps }
   try {
-    if (!aioConfigured(s)) throw new Error('AIOManager is not configured')
     if (!o.stremio_auth_key) throw new Error('This onboarding has no Stremio account yet')
     const r = await installStandardAddons(s, o.stremio_auth_key)
     if (!r) {
-      steps.addons = skip('No add-ons in the AIOManager library have "Sync with installed" on')
+      steps.addons = skip('Nothing to apply: both add-on options are off, or no add-ons have "Sync with installed" on')
     } else {
-      if (o.aio_account_id) {
+      if (o.aio_account_id && aioConfigured(s)) {
         await aioClient(s).setAccountAddons({ accountId: o.aio_account_id, email: o.email }, r.addons)
       }
-      steps.addons = ok(`Installed ${r.names.length} add-on(s): ${r.names.join(', ')}`)
+      steps.addons = ok(addonsDetail(r))
     }
   } catch (err) {
     steps.addons = fail(err)

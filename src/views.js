@@ -26,6 +26,7 @@ const ICONS = {
   external: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
   arrowLeft: '<path d="m12 19-7-7 7-7M19 12H5"/>',
+  layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
   refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
 }
 export const icon = (name) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`
@@ -100,11 +101,11 @@ function statusPill(o) {
 }
 
 function stepDots(o) {
-  const names = [['stremio', 'S', 'Stremio'], ['aiomanager', 'A', 'AIOManager'], ['email', 'E', 'Email']]
+  const names = [['stremio', 'S', 'Stremio'], ['addons', '+', 'Add-ons'], ['aiomanager', 'A', 'AIOManager'], ['email', 'E', 'Email']]
   return names
     .map(([k, letter, label]) => {
       const st = o.steps[k]
-      if (!st) return k === 'email' && !o.notify_email ? '' : `<span class="dot" title="${label}: not run">${letter}</span>`
+      if (!st) return (k === 'email' && !o.notify_email) || k === 'addons' ? '' : `<span class="dot" title="${label}: not run">${letter}</span>`
       const cls = st.ok ? (st.skipped ? 'skip' : 'ok') : 'bad'
       return `<span class="dot ${cls}" title="${esc(label + ': ' + (st.error || st.detail || ''))}">${letter}</span>`
     })
@@ -200,7 +201,7 @@ export function detailPage({ o, link, serverName, flash, aioUrl, user }) {
     <div class="actions">
       ${o.status === 'failed' ? `<form method="post" action="/onboardings/${o.id}/retry"><button class="primary">${icon('refresh')}Retry failed steps</button></form>` : ''}
       ${o.steps.stremio?.ok && o.steps.aiomanager && !o.steps.aiomanager.skipped ? `<form method="post" action="/onboardings/${o.id}/aio"><button class="btn" title="Adds the account back if it's missing from AIOManager">${icon('refresh')}Re-add to AIOManager</button></form>` : ''}
-      ${o.steps.stremio?.ok && o.stremio_auth_key && aioUrl ? `<form method="post" action="/onboardings/${o.id}/addons"><button class="btn" title="Replaces this account's add-ons with Cinemeta plus your synced AIOManager add-ons">${icon('refresh')}Apply standard add-ons</button></form>` : ''}
+      ${o.steps.stremio?.ok && o.stremio_auth_key && aioUrl ? `<form method="post" action="/onboardings/${o.id}/addons"><button class="btn" title="Applies the add-on options from Settings to this account">${icon('refresh')}Apply standard add-ons</button></form>` : ''}
       ${aioUrl && o.aio_account_id ? `<a class="btn" href="${esc(aioUrl)}" target="_blank" rel="noopener">${icon('external')}Open AIOManager</a>` : ''}
     </div>
   </section>
@@ -239,7 +240,7 @@ const section = (id, ic, title, sub, badge, body) => `<section class="card set-s
 
 export function settingsPage({ s, serverName, flash, defaultGuide, user, cert, aioReady, smtpReady }) {
   const linkExample = `${(s.public_url || 'http://this-server:8080').replace(/\/$/, '')}/welcome/…`
-  const nav = [['general', 'sliders', 'General'], ['aiomanager', 'plug', 'AIOManager'], ['email', 'mail', 'Email'], ['guide', 'book', 'Welcome guide'], ['advanced', 'settings', 'Advanced']]
+  const nav = [['general', 'sliders', 'General'], ['aiomanager', 'plug', 'AIOManager'], ['addons', 'layers', 'Add-ons'], ['email', 'mail', 'Email'], ['guide', 'book', 'Welcome guide'], ['advanced', 'settings', 'Advanced']]
   return layout({
     title: 'Settings',
     active: 'settings',
@@ -267,7 +268,6 @@ export function settingsPage({ s, serverName, flash, defaultGuide, user, cert, a
 
     ${section('aiomanager', 'plug', 'AIOManager', 'New Stremio accounts are added to this AIOManager account.', statusBadge(aioReady, 'Configured', 'Not set up'), `
       ${toggle('Add new accounts to AIOManager', 'aio_enabled', s)}
-      ${toggle('Install your standard add-ons on new accounts', 'standard_addons', s, 'New accounts get Cinemeta plus every saved add-on in your AIOManager library that has <b>Sync with installed</b> on, instead of Stremio\'s defaults.')}
       <div class="row2">
         ${field('URL', 'aio_url', s, { placeholder: 'https://aiomanager.lan', mono: true })}
         ${field('Account UUID', 'aio_uuid', s, { placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', mono: true })}
@@ -284,6 +284,13 @@ export function settingsPage({ s, serverName, flash, defaultGuide, user, cert, a
         : `${toggle('Allow self-signed certificates', 'aio_insecure_tls', s, 'Quick fix for LAN instances behind Caddy <code>tls internal</code>. Adding the CA below is safer.')}
           <details class="more"${s.aio_insecure_tls === '1' ? '' : ' open'}><summary>Add a custom CA certificate</summary><textarea name="aio_ca_new" rows="5" placeholder="-----BEGIN CERTIFICATE-----"></textarea></details>`}
       <div class="actions"><button class="btn" type="button" data-test="/api/test/aiomanager">${icon('plug')}Test connection</button><span class="test-out"></span></div>
+    `)}
+
+    ${section('addons', 'layers', 'Add-ons for new accounts', 'What a new Stremio account starts with. The list comes from AIOManager, so change it there.', '', `
+      ${toggle('Install your synced add-ons', 'standard_addons', s, 'Every saved add-on in your AIOManager library that has <b>Sync with installed</b> on.')}
+      <div class="addon-list" data-addons="/api/addons/synced"><p class="muted small">Loading from AIOManager…</p></div>
+      <div class="actions"><button class="btn" type="button" data-addons-refresh>${icon('refresh')}Refresh list</button></div>
+      ${toggle('Remove Stremio\'s default add-ons', 'remove_defaults', s, 'Keeps only the ones Stremio marks as protected, which it won\'t let you remove.')}
     `)}
 
     ${section('email', 'mail', 'Email', 'Optional. Lets you email welcome links instead of sending them yourself.', statusBadge(smtpReady, 'Configured', 'Off'), `

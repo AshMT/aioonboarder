@@ -369,3 +369,10 @@ details.more textarea { margin-top: 10px; }
   .card { padding: 18px; border-radius: 14px; }
   .copyline { flex-direction: column; }
 }
+
+.addon-list ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.addon-list li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--border-soft); }
+.addon-list li:first-child { border-top: 0; }
+.addon-list .ph { width: 28px; height: 28px; border-radius: 6px; background: #1a1a1a; flex: none; display: grid; place-items: center; font-size: 13px; font-weight: 600; color: var(--muted); }
+.addon-list li > span { display: flex; flex-direction: column; min-width: 0; }
+.addon-list li .small { overflow-wrap: anywhere; }
