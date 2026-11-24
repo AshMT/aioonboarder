@@ -35,6 +35,10 @@ export async function getAddonCollection(apiBase, authKey) {
   return Array.isArray(result?.addons) ? result.addons : []
 }
 
+export async function setAddonCollection(apiBase, authKey, addons) {
+  await call(apiBase, 'addonCollectionSet', { type: 'AddonCollectionSet', authKey, addons })
+}
+
 export function isAlreadyRegistered(err) {
   const m = String(err?.message || '').toLowerCase()
   return m.includes('already') || m.includes('exists') || err?.code === 'USER_EXISTS'

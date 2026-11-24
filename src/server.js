@@ -7,7 +7,7 @@ import * as db from './db.js'
 import { initSecrets, sessionKey, hashPassword, verifyPassword, token } from './secrets.js'
 import * as views from './views.js'
 import { renderGuide, DEFAULT_GUIDE } from './guide.js'
-import { createOnboarding, runOnboarding, resendEmail, readdToAio, aioClient, aioConfigured, welcomeLink } from './onboard.js'
+import { createOnboarding, runOnboarding, resendEmail, readdToAio, applyStandardAddons, aioClient, aioConfigured, welcomeLink } from './onboard.js'
 import { smtpConfigured, verifySmtp, sendTest } from './mailer.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -231,6 +231,11 @@ app.post('/onboardings/:id/retry', async (req, res) => {
 app.post('/onboardings/:id/aio', async (req, res) => {
   if (db.getOnboarding(req.params.id)) await readdToAio(req.params.id, { reqOrigin: origin(req) })
   res.redirect(`/onboardings/${req.params.id}?ok=aio`)
+})
+
+app.post('/onboardings/:id/addons', async (req, res) => {
+  if (db.getOnboarding(req.params.id)) await applyStandardAddons(req.params.id)
+  res.redirect(`/onboardings/${req.params.id}`)
 })
 
 app.post('/onboardings/:id/link', (req, res) => {

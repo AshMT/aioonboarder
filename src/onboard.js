@@ -42,6 +42,25 @@ export function createOnboarding({ email, name, createLink, notifyEmail }) {
   })
 }
 
+const CINEMETA_ID = 'com.linvo.cinemeta'
+
+// Replaces a Stremio account's add-ons with Cinemeta plus your standard set: every saved add-on
+// in the AIOManager library that has "Sync with installed" on. Returns null when there is no set.
+export async function installStandardAddons(s, authKey) {
+  const standard = await aioClient(s).standardAddons()
+  if (!standard.length) return null
+  const current = await stremio.getAddonCollection(s.stremio_api, authKey)
+  const keep = current.filter((ad) => ad?.manifest?.id === CINEMETA_ID)
+  const urls = new Set(keep.map((ad) => ad.transportUrl))
+  const addons = [...keep, ...standard.filter((ad) => !urls.has(ad.transportUrl))]
+  await stremio.setAddonCollection(s.stremio_api, authKey, addons)
+  return { addons, names: standard.map((ad) => String(ad.manifest?.name || '').trim()).filter(Boolean) }
+}
+
+function standardAddonsWanted(s) {
+  return s.standard_addons === '1' && aioConfigured(s)
+}
+
 const ok = (detail) => ({ ok: true, at: Date.now(), detail })
 const fail = (err) => ({ ok: false, at: Date.now(), error: String(err?.message || err) })
 const skip = (detail) => ({ ok: true, skipped: true, at: Date.now(), detail })
@@ -72,7 +91,22 @@ export async function runOnboarding(id, { reqOrigin } = {}) {
     }
   }
 
-  // 2. AIOManager
+  // 2. Standard add-ons (before AIOManager, so the account goes in with them)
+  if (!steps.addons?.ok && !steps.aiomanager?.ok && standardAddonsWanted(s)) {
+    try {
+      const r = await installStandardAddons(s, authKey)
+      steps.addons = r
+        ? ok(`Installed ${r.names.length} add-on(s): ${r.names.join(', ')}`)
+        : skip('No add-ons in the AIOManager library have "Sync with installed" on')
+    } catch (err) {
+      steps.addons = fail(err)
+      save({ status: 'failed' })
+      return o
+    }
+    save()
+  }
+
+  // 3. AIOManager
   if (!steps.aiomanager?.ok) {
     if (!aioConfigured(s)) {
       steps.aiomanager = skip('AIOManager not configured')
@@ -100,7 +134,7 @@ export async function runOnboarding(id, { reqOrigin } = {}) {
     save()
   }
 
-  // 3. Email
+  // 4. Email
   if (o.notify_email && !steps.email?.ok) {
     if (!smtpConfigured(s)) {
       steps.email = fail(new Error('Email requested but SMTP is not configured'))
@@ -188,6 +222,31 @@ export async function readdToAio(id, { reqOrigin } = {}) {
   delete steps.aiomanager
   db.updateOnboarding(id, { steps })
   return runOnboarding(id, { reqOrigin })
+}
+
+// Puts the standard add-ons on an account that already exists (replacing what it has) and
+// updates AIOManager's copy to match.
+export async function applyStandardAddons(id) {
+  const s = db.getSettings()
+  const o = db.getOnboarding(id)
+  const steps = { ...o.steps }
+  try {
+    if (!aioConfigured(s)) throw new Error('AIOManager is not configured')
+    if (!o.stremio_auth_key) throw new Error('This onboarding has no Stremio account yet')
+    const r = await installStandardAddons(s, o.stremio_auth_key)
+    if (!r) {
+      steps.addons = skip('No add-ons in the AIOManager library have "Sync with installed" on')
+    } else {
+      if (o.aio_account_id) {
+        await aioClient(s).setAccountAddons({ accountId: o.aio_account_id, email: o.email }, r.addons)
+      }
+      steps.addons = ok(`Installed ${r.names.length} add-on(s): ${r.names.join(', ')}`)
+    }
+  } catch (err) {
+    steps.addons = fail(err)
+  }
+  db.updateOnboarding(id, { steps })
+  return db.getOnboarding(id)
 }
 
 export async function resendEmail(id, { reqOrigin } = {}) {

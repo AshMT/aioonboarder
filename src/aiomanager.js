@@ -166,6 +166,29 @@ export class AIOManagerClient {
     return !!findAccount(state.accounts || [], { accountId, email })
   }
 
+  async standardAddons() {
+    const { state } = await this.pull()
+    return standardAddonsFromState(state)
+  }
+
+  // Replaces an existing account's add-on list in AIOManager's copy, so it matches what was just
+  // written to Stremio instead of pushing the old list back. Returns false if the account is gone.
+  async setAccountAddons({ accountId, email }, addons) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const snap = await this.pull()
+        const acc = findAccount(snap.state.accounts || [], { accountId, email })
+        if (!acc) return false
+        acc.addons = mapAddons(snap.state, addons)
+        await this.push(snap)
+        return true
+      } catch (err) {
+        if (!(err instanceof SyncConflictError) || attempt >= PUSH_ATTEMPTS) throw err
+        await sleep(1500 * attempt)
+      }
+    }
+  }
+
   // Adds a Stremio account exactly as AIOManager's "Add account" would. Pass accountId/apiKey to
   // re-add a known account under the same identity. Retries when another client saves meanwhile.
   // Returns { accountId, apiKey, existed }
@@ -192,19 +215,7 @@ export class AIOManagerClient {
     if (!state.salt) throw new Error('AIOManager vault is not initialised (no salt in state). Log in to AIOManager once in a browser first.')
     const vaultKey = await deriveKey(this.password, Buffer.from(state.salt, 'base64'))
 
-    state.manifests = state.manifests && typeof state.manifests === 'object' ? state.manifests : {}
-    const mappedAddons = addons.map((ad) => {
-      const manifest = ad.manifest || {}
-      const manifestId = `${manifest.id}:${manifest.version}`
-      if (!state.manifests[manifestId]) state.manifests[manifestId] = manifest
-      return {
-        transportUrl: ad.transportUrl,
-        transportName: ad.transportName ?? '',
-        manifestId,
-        manifest,
-        flags: ad.flags,
-      }
-    })
+    const mappedAddons = mapAddons(state, addons)
 
     const connectionId = crypto.randomUUID()
     state.accounts.push({
@@ -239,6 +250,46 @@ export class AIOManagerClient {
     await this.push(snap)
     return { accountId, apiKey, existed: false }
   }
+}
+
+// Saved library add-ons with "Sync with installed" on for every account, as Stremio collection
+// entries. Ordered like the account that already has the most of them (your own setup), so a
+// new account's home screen matches yours. Add-ons limited to chosen accounts are left out.
+export function standardAddonsFromState(state) {
+  const saved = Array.isArray(state?.addons?.savedAddons) ? state.addons.savedAddons : []
+  const chosen = saved.filter((a) => a && a.syncWithInstalled === true && a.installUrl && a.manifest && !Array.isArray(a.syncAccountIds))
+  if (!chosen.length) return []
+  const norm = (u) => String(u || '').trim().replace(/\/manifest\.json$/, '').replace(/\/$/, '').toLowerCase()
+  let order = []
+  for (const acc of state.accounts || []) {
+    const urls = (acc.addons || []).map((ad) => norm(ad.transportUrl))
+    const hits = urls.filter((u) => chosen.some((a) => norm(a.installUrl) === u))
+    if (hits.length > order.length) order = hits
+  }
+  const rank = (a) => {
+    const i = order.indexOf(norm(a.installUrl))
+    return i === -1 ? order.length + saved.indexOf(a) : i
+  }
+  return chosen
+    .slice()
+    .sort((a, b) => rank(a) - rank(b))
+    .map((a) => ({ transportUrl: a.installUrl, transportName: '', manifest: a.manifest, flags: {} }))
+}
+
+function mapAddons(state, addons) {
+  state.manifests = state.manifests && typeof state.manifests === 'object' ? state.manifests : {}
+  return addons.map((ad) => {
+    const manifest = ad.manifest || {}
+    const manifestId = `${manifest.id}:${manifest.version}`
+    if (!state.manifests[manifestId]) state.manifests[manifestId] = manifest
+    return {
+      transportUrl: ad.transportUrl,
+      transportName: ad.transportName ?? '',
+      manifestId,
+      manifest,
+      flags: ad.flags,
+    }
+  })
 }
 
 function findAccount(accounts, { accountId, email }) {
