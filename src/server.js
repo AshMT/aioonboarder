@@ -86,21 +86,26 @@ app.use((req, res, next) => {
 })
 
 // ---- login rate limiting ----
+// Per client IP (set TRUST_PROXY behind a reverse proxy so this is the real client), plus a
+// global cap so a spread-out guessing run can't keep going when the login is internet-facing.
+const WINDOW = 15 * 60000
 const attempts = new Map()
+let globalFails = []
 function tooMany(ip) {
   const now = Date.now()
-  const a = (attempts.get(ip) || []).filter((t) => now - t < 15 * 60000)
+  const a = (attempts.get(ip) || []).filter((t) => now - t < WINDOW)
   attempts.set(ip, a)
-  return a.length >= 10
+  globalFails = globalFails.filter((t) => now - t < WINDOW)
+  if (attempts.size > 10000) for (const [k, v] of attempts) if (!v.length) attempts.delete(k)
+  return a.length >= 10 || globalFails.length >= 50
+}
+function recordFail(ip) {
+  attempts.get(ip).push(Date.now())
+  globalFails.push(Date.now())
 }
 
 // ---- public routes ----
 app.get('/healthz', (req, res) => res.json({ ok: true }))
-
-// Public landing for the bare domain (the reverse proxy maps "/" here) and token-less links.
-app.get(['/join', '/welcome', '/welcome/'], (req, res) => {
-  res.send(views.welcomePage({ o: null, s: db.getSettings(), guideHtml: '', state: 'landing' }))
-})
 
 app.get('/welcome/:token', (req, res) => {
   const s = db.getSettings()
@@ -149,7 +154,7 @@ app.post('/login', async (req, res) => {
   const userOk = (username || '').trim() === db.getRaw('admin_username')
   const passOk = await verifyPassword(password || '', db.getRaw('admin_password'))
   if (!userOk || !passOk) {
-    attempts.get(ip).push(Date.now())
+    recordFail(ip)
     return res.status(401).send(views.authPage({ mode: 'login', error: 'Wrong username or password', serverName: serverName() }))
   }
   attempts.delete(ip)
@@ -165,7 +170,10 @@ app.post('/logout', (req, res) => {
 // ---- everything below needs the admin ----
 app.use((req, res, next) => {
   if (!isSetUp()) return res.redirect('/setup')
-  if (readSession(req)) return next()
+  if (readSession(req)) {
+    res.set('Cache-Control', 'no-store')
+    return next()
+  }
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Not logged in' })
   res.redirect('/login')
 })

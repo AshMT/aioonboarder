@@ -9,6 +9,7 @@ BRANCH="${AIOONBOARDER_BRANCH:-main}"
 APP_DIR=/opt/aioonboarder
 DATA_DIR=/var/lib/aioonboarder
 PORT="${PORT:-8080}"
+TRUST_PROXY="${TRUST_PROXY:-loopback,uniquelocal}" # the reverse proxy's address range, so login limits see real client IPs
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root"; exit 1; }
 
@@ -54,6 +55,7 @@ WorkingDirectory=$APP_DIR
 Environment=NODE_ENV=production
 Environment=PORT=$PORT
 Environment=DATA_DIR=$DATA_DIR
+Environment=TRUST_PROXY=$TRUST_PROXY
 ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning src/server.js
 Restart=on-failure
 RestartSec=3

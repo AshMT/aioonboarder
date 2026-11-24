@@ -94,31 +94,23 @@ Everything is set in the web UI. Environment variables:
 | `HOST` | `0.0.0.0` | |
 | `DATA_DIR` | `./data` | SQLite database and the generated encryption key |
 | `APP_SECRET` | generated into `DATA_DIR/app.secret` | Encryption key for stored secrets and sessions. Back it up with the database. |
-| `TRUST_PROXY` | unset | Set (e.g. `1`) when behind a reverse proxy so HTTPS is detected |
+| `TRUST_PROXY` | unset | The reverse proxy's address (e.g. `loopback,uniquelocal`), so HTTPS and client IPs are detected |
 
 ### AIOManager on a LAN-only HTTPS address
 
 If AIOManager sits behind Caddy with `tls internal` (self-signed), either paste Caddy's root CA into **Custom CA certificate** in Settings, or tick **Allow self-signed TLS certificate**.
 
-### Public welcome links
+### Public address
 
-Only `/welcome/*` (plus the CSS, JS and font files) needs to be reachable by the people you onboard. Expose just those through your reverse proxy, keep the admin UI on your LAN, and set **Public URL** in Settings so links use the public address. `/join` is a public landing page for the bare domain. A Caddy example:
+Put AIOOnboarder behind a reverse proxy with HTTPS and set **Public URL** in Settings so welcome links use it. The bare domain opens the admin login, and `/welcome/<token>` is open to the people you onboard. Set `TRUST_PROXY` to the proxy's address (the installer defaults to private ranges) so login rate limits apply per client: 10 failed logins per IP, or 50 across all IPs, locks login for 15 minutes. A Caddy example:
 
 ```caddy
 join.example.com {
-	@public path /welcome /welcome/* /join /style.css /app.js /favicon.svg /fonts/*
-	handle / {
-		rewrite * /join
-		reverse_proxy 10.0.0.20:8080
-	}
-	handle @public {
-		reverse_proxy 10.0.0.20:8080
-	}
-	handle {
-		respond 404
-	}
+	reverse_proxy 10.0.0.20:8080
 }
 ```
+
+To keep the admin UI on your LAN and publish only the welcome links, limit the proxy to `/welcome/*`, `/style.css`, `/app.js`, `/favicon.svg` and `/fonts/*`.
 
 ## Notes
 
