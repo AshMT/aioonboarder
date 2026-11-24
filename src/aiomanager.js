@@ -22,6 +22,16 @@ const pbkdf2 = promisify(crypto.pbkdf2)
 const PBKDF2_ITERATIONS = 600000
 const DEFAULT_SYNC_SALT = Buffer.from('aiomanager-sync-key-v2', 'utf8')
 const COMPRESS_THRESHOLD = 51200
+const PUSH_ATTEMPTS = 4
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Another AIOManager client (an open browser tab) saved between our pull and our push.
+export class SyncConflictError extends Error {
+  constructor() {
+    super('AIOManager was changed by another device while saving; retry in a few seconds')
+    this.code = 'conflict'
+  }
+}
 
 export function syncToken(password) {
   return crypto.createHash('sha256').update(`${password}:sync-auth-token`, 'utf8').digest('hex')
@@ -109,6 +119,10 @@ export class AIOManagerClient {
     return { envelope, state, syncKey }
   }
 
+  // `syncedAt` in the body is what AIOManager's server uses for conflict detection: it refuses a
+  // push whose syncedAt is older than its own copy. Sending the time of the copy we pulled (not
+  // "now") means a browser tab that saved in between makes this push fail instead of being
+  // silently overwritten.
   async push({ envelope, state, syncKey }) {
     const now = new Date().toISOString()
     const stateStr = JSON.stringify({ ...state, syncedAt: now })
@@ -125,7 +139,7 @@ export class AIOManagerClient {
       isEncrypted: true,
       compressed,
       syncSalt: envelope.syncSalt,
-      syncedAt: now,
+      syncedAt: envelope.syncedAt || now,
       force: false,
       apiKeys,
     }
@@ -133,7 +147,7 @@ export class AIOManagerClient {
     if (res.status !== 200 || !res.data?.success) {
       throw new Error(`AIOManager sync push failed (HTTP ${res.status}): ${JSON.stringify(res.data)}`)
     }
-    if (res.data.conflict) throw new Error('AIOManager reported a sync conflict; retry in a few seconds')
+    if (res.data.conflict) throw new SyncConflictError()
     return res.data
   }
 
@@ -146,18 +160,33 @@ export class AIOManagerClient {
     }
   }
 
-  // Adds a Stremio account exactly as AIOManager's "Add account" would.
+  // True when an account with this id (or, failing that, this email) is in AIOManager's copy.
+  async hasAccount({ accountId, email }) {
+    const { state } = await this.pull()
+    return !!findAccount(state.accounts || [], { accountId, email })
+  }
+
+  // Adds a Stremio account exactly as AIOManager's "Add account" would. Pass accountId/apiKey to
+  // re-add a known account under the same identity. Retries when another client saves meanwhile.
   // Returns { accountId, apiKey, existed }
-  async addStremioAccount({ name, email, authKey, password, addons = [], emoji, accentColor }) {
+  async addStremioAccount(opts) {
+    const ids = { accountId: opts.accountId || crypto.randomUUID(), apiKey: opts.apiKey || crypto.randomUUID() }
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.#addOnce(opts, ids)
+      } catch (err) {
+        if (!(err instanceof SyncConflictError) || attempt >= PUSH_ATTEMPTS) throw err
+        await sleep(1500 * attempt)
+      }
+    }
+  }
+
+  async #addOnce({ name, email, authKey, password, addons = [], emoji, accentColor }, { accountId, apiKey }) {
     const snap = await this.pull()
     const { state } = snap
     state.accounts = Array.isArray(state.accounts) ? state.accounts : []
 
-    const lower = String(email).toLowerCase()
-    const existing = state.accounts.find((a) => {
-      const e = a.email || a.connections?.find((c) => c.platform === 'stremio')?.credentials?.email
-      return e && String(e).toLowerCase() === lower
-    })
+    const existing = findAccount(state.accounts, { accountId, email })
     if (existing) return { accountId: existing.id, apiKey: existing.apiKey, existed: true }
 
     if (!state.salt) throw new Error('AIOManager vault is not initialised (no salt in state). Log in to AIOManager once in a browser first.')
@@ -177,10 +206,7 @@ export class AIOManagerClient {
       }
     })
 
-    const accountId = crypto.randomUUID()
     const connectionId = crypto.randomUUID()
-    const apiKey = crypto.randomUUID()
-    const now = Date.now()
     state.accounts.push({
       id: accountId,
       name: name || email,
@@ -208,9 +234,19 @@ export class AIOManagerClient {
       ],
       primaryConnectionId: connectionId,
       apiKey,
-      createdAt: now,
+      createdAt: Date.now(),
     })
     await this.push(snap)
     return { accountId, apiKey, existed: false }
   }
+}
+
+function findAccount(accounts, { accountId, email }) {
+  const lower = email ? String(email).toLowerCase() : null
+  return accounts.find((a) => {
+    if (accountId && a.id === accountId) return true
+    if (!lower) return false
+    const e = a.email || a.connections?.find((c) => c.platform === 'stremio')?.credentials?.email
+    return e && String(e).toLowerCase() === lower
+  })
 }

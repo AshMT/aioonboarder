@@ -115,6 +115,7 @@ To keep the admin UI on your LAN and publish only the welcome links, limit the p
 ## Notes
 
 - Stremio has no forced password change. The default guide sends people to stremio.com/reset-password to pick their own.
+- An open AIOManager browser tab saves its own copy of your accounts every few seconds and can overwrite a just-added account. AIOOnboarder re-checks AIOManager for a few minutes after each onboarding and puts the account back if needed; the record's **Re-add to AIOManager** button does the same by hand.
 - Deleting a record in AIOOnboarder doesn't delete the Stremio account or the AIOManager entry.
 
 ## Development

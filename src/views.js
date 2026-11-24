@@ -199,6 +199,7 @@ export function detailPage({ o, link, serverName, flash, aioUrl, user }) {
     <ul class="timeline">${step('stremio', 'Stremio account')}${step('aiomanager', 'Add to AIOManager')}${o.notify_email || o.steps.email ? step('email', 'Welcome email') : ''}</ul>
     <div class="actions">
       ${o.status === 'failed' ? `<form method="post" action="/onboardings/${o.id}/retry"><button class="primary">${icon('refresh')}Retry failed steps</button></form>` : ''}
+      ${o.steps.stremio?.ok && o.steps.aiomanager && !o.steps.aiomanager.skipped ? `<form method="post" action="/onboardings/${o.id}/aio"><button class="btn" title="Adds the account back if it's missing from AIOManager">${icon('refresh')}Re-add to AIOManager</button></form>` : ''}
       ${aioUrl && o.aio_account_id ? `<a class="btn" href="${esc(aioUrl)}" target="_blank" rel="noopener">${icon('external')}Open AIOManager</a>` : ''}
     </div>
   </section>

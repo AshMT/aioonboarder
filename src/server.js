@@ -7,7 +7,7 @@ import * as db from './db.js'
 import { initSecrets, sessionKey, hashPassword, verifyPassword, token } from './secrets.js'
 import * as views from './views.js'
 import { renderGuide, DEFAULT_GUIDE } from './guide.js'
-import { createOnboarding, runOnboarding, resendEmail, aioClient, aioConfigured, welcomeLink } from './onboard.js'
+import { createOnboarding, runOnboarding, resendEmail, readdToAio, aioClient, aioConfigured, welcomeLink } from './onboard.js'
 import { smtpConfigured, verifySmtp, sendTest } from './mailer.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -180,7 +180,7 @@ app.use((req, res, next) => {
 
 const flashFrom = (req) => {
   if (req.query.err) return { type: 'error', text: String(req.query.err).slice(0, 200) }
-  const m = { saved: ['ok', 'Settings saved.'], retried: ['ok', 'Retried.'], link: ['ok', 'New welcome link created.'], revoked: ['ok', 'Link revoked.'], emailed: ['ok', 'Email step re-run.'], deleted: ['ok', 'Record deleted.'] }[req.query.ok]
+  const m = { saved: ['ok', 'Settings saved.'], retried: ['ok', 'Retried.'], link: ['ok', 'New welcome link created.'], revoked: ['ok', 'Link revoked.'], emailed: ['ok', 'Email step re-run.'], aio: ['ok', 'AIOManager step re-run.'], deleted: ['ok', 'Record deleted.'] }[req.query.ok]
   return m ? { type: m[0], text: m[1] } : null
 }
 
@@ -226,6 +226,11 @@ app.get('/onboardings/:id', (req, res) => {
 app.post('/onboardings/:id/retry', async (req, res) => {
   if (db.getOnboarding(req.params.id)) await runOnboarding(req.params.id, { reqOrigin: origin(req) })
   res.redirect(`/onboardings/${req.params.id}?ok=retried`)
+})
+
+app.post('/onboardings/:id/aio', async (req, res) => {
+  if (db.getOnboarding(req.params.id)) await readdToAio(req.params.id, { reqOrigin: origin(req) })
+  res.redirect(`/onboardings/${req.params.id}?ok=aio`)
 })
 
 app.post('/onboardings/:id/link', (req, res) => {

@@ -85,9 +85,12 @@ export async function runOnboarding(id, { reqOrigin } = {}) {
           authKey,
           password: o.temp_password,
           addons,
+          accountId: o.aio_account_id || undefined,
+          apiKey: o.aio_api_key || undefined,
         })
         steps.aiomanager = ok(r.existed ? 'Account was already in AIOManager' : `Added to AIOManager with ${addons.length} addon(s)`)
         save({ aio_account_id: r.accountId, aio_api_key: r.apiKey })
+        watchAioAccount(id, { addons })
       } catch (err) {
         steps.aiomanager = fail(err)
         save({ status: 'failed' })
@@ -122,6 +125,69 @@ export async function runOnboarding(id, { reqOrigin } = {}) {
   const failed = Object.values(steps).some((st) => st && st.ok === false)
   save({ status: failed ? 'failed' : 'done' })
   return o
+}
+
+// An open AIOManager browser tab keeps its own copy of the accounts and saves it back every few
+// seconds. AIOManager's server only refuses such a save when the tab's copy is more than 5 s older
+// than the server's, so a tab that synced just before we wrote can drop the new account on its
+// next save. Re-check for a few minutes and put the account back if it went missing; once the
+// tab has pulled our version it keeps it.
+const VERIFY_DELAYS = (process.env.AIO_VERIFY_DELAYS || '15000,45000,120000').split(',').map(Number)
+const watching = new Set()
+
+export function watchAioAccount(id, { addons = [] } = {}) {
+  if (watching.has(id)) return
+  watching.add(id)
+  ;(async () => {
+    let readded = 0
+    try {
+      for (const delay of VERIFY_DELAYS) {
+        await new Promise((r) => setTimeout(r, delay))
+        const s = db.getSettings()
+        const o = db.getOnboarding(id)
+        if (!o || !o.aio_account_id || !aioConfigured(s)) return
+        const client = aioClient(s)
+        let present
+        try {
+          present = await client.hasAccount({ accountId: o.aio_account_id, email: o.email })
+        } catch {
+          continue // AIOManager unreachable for a moment; try again at the next check
+        }
+        if (present) continue
+        try {
+          await client.addStremioAccount({
+            name: o.name || o.email, email: o.email, authKey: o.stremio_auth_key, password: o.temp_password,
+            addons, accountId: o.aio_account_id, apiKey: o.aio_api_key,
+          })
+          readded++
+        } catch {}
+      }
+      const s = db.getSettings()
+      const o = db.getOnboarding(id)
+      if (!o || !aioConfigured(s)) return
+      let present = null
+      try { present = await aioClient(s).hasAccount({ accountId: o.aio_account_id, email: o.email }) } catch {}
+      const steps = { ...o.steps }
+      if (present === false) {
+        steps.aiomanager = fail(new Error('Added, but the account later disappeared from AIOManager (an open AIOManager tab may have overwritten it). Use "Re-add to AIOManager".'))
+        db.updateOnboarding(id, { steps, status: 'failed' })
+      } else if (readded && steps.aiomanager?.ok) {
+        steps.aiomanager = { ...steps.aiomanager, detail: `${steps.aiomanager.detail} (re-added after an AIOManager tab overwrote it)` }
+        db.updateOnboarding(id, { steps })
+      }
+    } finally {
+      watching.delete(id)
+    }
+  })()
+}
+
+// Puts the account back into AIOManager (same account id and API key) if it's missing.
+export async function readdToAio(id, { reqOrigin } = {}) {
+  const o = db.getOnboarding(id)
+  const steps = { ...o.steps }
+  delete steps.aiomanager
+  db.updateOnboarding(id, { steps })
+  return runOnboarding(id, { reqOrigin })
 }
 
 export async function resendEmail(id, { reqOrigin } = {}) {

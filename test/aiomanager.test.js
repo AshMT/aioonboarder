@@ -145,3 +145,42 @@ test('large (compressed) state round-trips through addStremioAccount', async () 
     fake.server.close()
   }
 })
+
+test('push carries the pulled syncedAt and retries after a conflict without losing the other change', async () => {
+  const password = 'master-pass'
+  const key = await deriveKey(password, Buffer.from('aiomanager-sync-key-v2'))
+  const enc = (state, syncedAt) => ({ data: gcmEncrypt(JSON.stringify(state), key), isEncrypted: true, compressed: false, syncedAt })
+  const salt = crypto.randomBytes(16).toString('base64')
+  let envelope = enc({ salt, accounts: [{ id: 'a1', email: 'old@example.com' }] }, '2026-01-01T00:00:00.000Z')
+  const pushedSyncedAt = []
+  let posts = 0
+  const server = http.createServer(async (req, res) => {
+    if (req.method === 'GET') return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(envelope))
+    let body = ''
+    for await (const c of req) body += c
+    const b = JSON.parse(body)
+    pushedSyncedAt.push(b.syncedAt)
+    posts++
+    if (posts === 1) {
+      // Another device saved in the meantime: the server refuses our stale push.
+      envelope = enc({ salt, accounts: [{ id: 'a1', email: 'old@example.com' }, { id: 'a2', email: 'browser@example.com' }] }, '2026-01-01T00:01:00.000Z')
+      return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ success: true, conflict: true }))
+    }
+    envelope = { ...b, syncedAt: '2026-01-01T00:02:00.000Z' }
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ success: true }))
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  try {
+    const c = new AIOManagerClient({ url: `http://127.0.0.1:${server.address().port}`, uuid: 'u1', password })
+    const r = await c.addStremioAccount({ name: 'Sam', email: 'sam@example.com', authKey: 'K', password: 'P', accountId: 'fixed-id', apiKey: 'fixed-key' })
+    assert.deepEqual(pushedSyncedAt, ['2026-01-01T00:00:00.000Z', '2026-01-01T00:01:00.000Z'])
+    assert.equal(r.accountId, 'fixed-id')
+    assert.equal(r.apiKey, 'fixed-key')
+    const { state } = await c.pull()
+    assert.deepEqual(state.accounts.map((a) => a.id), ['a1', 'a2', 'fixed-id'])
+    assert.equal(await c.hasAccount({ accountId: 'fixed-id' }), true)
+    assert.equal(await c.hasAccount({ accountId: 'nope', email: 'nobody@example.com' }), false)
+  } finally {
+    server.close()
+  }
+})
